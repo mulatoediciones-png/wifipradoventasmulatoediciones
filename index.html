@@ -1094,8 +1094,10 @@ document.getElementById("btnGuardar").addEventListener("click", async ()=>{
   const municipio = document.getElementById("f-municipio").value;
   const rolActual = currentUser ? currentUser.rol : "";
   // Los leads que registra el Community Manager o un vendedor de calle necesitan
-  // que una vendedora los llame para concretar la venta.
-  const requiereLlamada = (rolActual === "CM" || rolActual === "Calle") ? "Si" : "No";
+  // que una vendedora los llame para concretar la venta — EXCEPTO si el vendedor
+  // de calle ya cerró la venta ahí mismo (estado = Compra), porque ahí no hace
+  // falta que nadie más llame, solo queda pendiente la instalación.
+  const requiereLlamada = (rolActual === "CM" || rolActual === "Calle") && estado !== "Compra" ? "Si" : "No";
   const entry = {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2,6),
     nombre, ubicacion, telefono, fecha,
