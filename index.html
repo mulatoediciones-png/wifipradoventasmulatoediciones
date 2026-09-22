@@ -896,7 +896,15 @@ const GOOGLE_SHEET_API_URL = "https://script.google.com/macros/s/AKfycbygxfI6xP7
 
 // ---------- Sesión / roles ----------
 // Clave de administrador: cámbiala aquí cuando quieras. Solo quien la conozca ve el ingreso.
-const ADMIN_PASSWORD = "Prado2026";
+// Clave de administrador: guardada como hash SHA-256, no en texto plano.
+// Para cambiarla, genera el hash de tu nueva clave (pídeme ayuda) y reemplaza este valor.
+const ADMIN_PASSWORD_HASH = "3219366d500d11c082ce452224e21a9beae92e9f2e1e657a1f1278dfdc8a30ee";
+
+async function sha256Hex(text){
+  const data = new TextEncoder().encode(text);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2,"0")).join("");
+}
 let currentUser = null; // {name, isAdmin}
 
 let entries = [];
@@ -2115,9 +2123,10 @@ document.getElementById("btnShowAdmin").addEventListener("click", ()=>{
   document.getElementById("login-admin-pass").focus();
 });
 
-document.getElementById("btnLoginAdmin").addEventListener("click", ()=>{
+document.getElementById("btnLoginAdmin").addEventListener("click", async ()=>{
   const pass = document.getElementById("login-admin-pass").value;
-  if(pass === ADMIN_PASSWORD){
+  const passHash = await sha256Hex(pass);
+  if(passHash === ADMIN_PASSWORD_HASH){
     currentUser = {name:"Administrador", isAdmin:true, rol:"Admin"};
     document.getElementById("loginGate").style.display = "none";
     applyRoleUI();
