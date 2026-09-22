@@ -630,7 +630,10 @@
       <div class="hero-chip"><div class="hero-chip-num" id="heroCerrados">0</div><div class="hero-chip-label">Cerrados</div></div>
       <div class="hero-chip"><div class="hero-chip-num" id="heroTasa">0%</div><div class="hero-chip-label">Conversión</div></div>
     </div>
-    <div class="role-badge" id="roleBadge">👤 <span id="roleBadgeText">—</span></div>
+    <div class="role-badge" id="roleBadge">
+      👤 <span id="roleBadgeText">—</span>
+      <button id="btnLogout" title="Cerrar sesión" style="background:none; border:none; color:inherit; margin-left:6px; padding:0 2px; cursor:pointer; font-size:12px; text-decoration:underline; opacity:0.85;">Salir</button>
+    </div>
   </div>
 
   <div class="powered-by">
@@ -914,7 +917,24 @@ async function sha256Hex(text){
   const hashBuffer = await crypto.subtle.digest("SHA-256", data);
   return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2,"0")).join("");
 }
-let currentUser = null; // {name, isAdmin}
+let currentUser = null; // {name, isAdmin, rol}
+
+// ---------- Sesión persistente (se mantiene al recargar la página) ----------
+function saveSession(){
+  try{ localStorage.setItem("wifiprado_session", JSON.stringify(currentUser)); }catch(e){}
+}
+function clearSession(){
+  try{ localStorage.removeItem("wifiprado_session"); }catch(e){}
+}
+function restoreSession(){
+  try{
+    const raw = localStorage.getItem("wifiprado_session");
+    if(!raw) return null;
+    const saved = JSON.parse(raw);
+    if(saved && saved.name) return saved;
+  }catch(e){}
+  return null;
+}
 
 let entries = [];
 let currentMonthKey = new Date().toISOString().slice(0,7); // YYYY-MM
@@ -1245,6 +1265,7 @@ function seguimientoCardHTML(e){
       ${waLink ? `<a href="${waLink}" target="_blank" rel="noopener" style="flex:1; text-align:center; padding:8px; border-radius:8px; border:1px solid var(--success); background:var(--success-tint); font-size:12px; font-weight:600; color:var(--success); text-decoration:none;">💬 WhatsApp</a>` : ""}
       ${!phoneDigits ? `<span style="flex:1; text-align:center; padding:8px; font-size:11.5px; color:var(--ink-faint);">Sin teléfono</span>` : ""}
     </div>
+    <button class="btn-primary marcar-llamado" style="margin-top:8px; background:var(--accent);">✅ Ya lo llamé</button>
   </div>`;
 }
 
@@ -2137,6 +2158,7 @@ document.getElementById("btnLoginVendedor").addEventListener("click", async ()=>
   const passHash = await sha256Hex(pass);
   if(user && passHash === user.hash){
     currentUser = {name: user.name, isAdmin:false, rol: user.rol};
+    saveSession();
     document.getElementById("loginGate").style.display = "none";
     applyRoleUI();
   } else {
@@ -2154,6 +2176,7 @@ document.getElementById("btnLoginAdmin").addEventListener("click", async ()=>{
   const passHash = await sha256Hex(pass);
   if(passHash === ADMIN_PASSWORD_HASH){
     currentUser = {name:"Administrador", isAdmin:true, rol:"Admin"};
+    saveSession();
     document.getElementById("loginGate").style.display = "none";
     applyRoleUI();
   } else {
@@ -2161,8 +2184,26 @@ document.getElementById("btnLoginAdmin").addEventListener("click", async ()=>{
   }
 });
 
+document.getElementById("btnLogout").addEventListener("click", ()=>{
+  if(!confirm("¿Cerrar sesión?")) return;
+  clearSession();
+  currentUser = null;
+  document.getElementById("login-pass").value = "";
+  document.getElementById("login-name-select").value = "";
+  document.getElementById("login-admin-pass").value = "";
+  document.getElementById("adminPassWrap").style.display = "none";
+  document.getElementById("loginGate").style.display = "flex";
+});
+
 // ---------- Init ----------
 (async function init(){
+  // Si ya había una sesión guardada, entra directo sin pedir login de nuevo
+  const saved = restoreSession();
+  if(saved){
+    currentUser = saved;
+    document.getElementById("loginGate").style.display = "none";
+    applyRoleUI();
+  }
   renderAll(); // muestra el estado "Conectando..." de inmediato
   await loadEntries();
   dataLoaded = true;
