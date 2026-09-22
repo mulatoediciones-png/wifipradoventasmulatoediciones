@@ -314,6 +314,15 @@
   .stat-card .num{font-size:22px; font-weight:800; letter-spacing:-0.01em;}
   .stat-card .lbl{font-size:11.5px; color:var(--ink-soft); margin-top:3px;}
   .stat-card.wide{grid-column:1/-1;}
+  .stat-card.filterable{
+    cursor:pointer;
+    transition: border-color 0.2s ease, background 0.2s ease, transform 0.15s ease;
+  }
+  .stat-card.filterable:active{ transform:scale(0.96); }
+  .stat-card.filterable.filter-active{
+    border-color:var(--primary);
+    background:var(--primary-tint);
+  }
 
   .bar-row{margin-bottom:12px;}
   .bar-row:last-child{margin-bottom:0;}
@@ -757,24 +766,30 @@
       </div>
 
       <div class="stat-grid" style="margin-bottom:18px;">
-        <div class="stat-card"><div class="num" id="seg-total">0</div><div class="lbl">Interesados totales</div></div>
-        <div class="stat-card"><div class="num" id="seg-dentro">0</div><div class="lbl">Dentro de zona, sin cobertura</div></div>
-        <div class="stat-card"><div class="num" id="seg-fuera">0</div><div class="lbl">Fuera de tus municipios</div></div>
-        <div class="stat-card"><div class="num" id="seg-concob">0</div><div class="lbl">Con cobertura</div></div>
+        <div class="stat-card filterable filter-active" data-filtro="todos"><div class="num" id="seg-total">0</div><div class="lbl">Interesados totales</div></div>
+        <div class="stat-card filterable" data-filtro="dentro"><div class="num" id="seg-dentro">0</div><div class="lbl">Dentro de zona, sin cobertura</div></div>
+        <div class="stat-card filterable" data-filtro="fuera"><div class="num" id="seg-fuera">0</div><div class="lbl">Fuera de tus municipios</div></div>
+        <div class="stat-card filterable" data-filtro="concob"><div class="num" id="seg-concob">0</div><div class="lbl">Con cobertura</div></div>
       </div>
 
       <div class="field" style="margin-bottom:10px;">
         <input type="text" id="f-buscar-seg" placeholder="🔍 Buscar en interesados..." autocomplete="off">
       </div>
 
-      <div class="section-label" style="color:var(--danger);">📍 Dentro de tu zona (Valencia / San Diego / Los Guayos) — sin cobertura aún</div>
-      <div id="seguimientoDentroSinCobertura"></div>
+      <div id="bloqueSegDentro">
+        <div class="section-label" style="color:var(--danger);">📍 Dentro de tu zona (Valencia / San Diego / Los Guayos) — sin cobertura aún</div>
+        <div id="seguimientoDentroSinCobertura"></div>
+      </div>
 
-      <div class="section-label" style="color:var(--accent);">🌍 Fuera de tus municipios — expansión futura</div>
-      <div id="seguimientoFueraZona"></div>
+      <div id="bloqueSegFuera">
+        <div class="section-label" style="color:var(--accent);">🌍 Fuera de tus municipios — expansión futura</div>
+        <div id="seguimientoFueraZona"></div>
+      </div>
 
-      <div class="section-label">✅ Con cobertura — falta cerrar</div>
-      <div id="seguimientoConCobertura"></div>
+      <div id="bloqueSegConCob">
+        <div class="section-label">✅ Con cobertura — falta cerrar</div>
+        <div id="seguimientoConCobertura"></div>
+      </div>
     </div>
 
     <!-- POR LLAMAR -->
@@ -1592,6 +1607,17 @@ function renderPanelAndHero(){
 }
 
 let seguimientoSearchQuery = "";
+let seguimientoFiltro = "todos"; // "todos" | "dentro" | "fuera" | "concob"
+
+document.querySelectorAll('#screen-seguimiento .stat-card.filterable').forEach(card=>{
+  card.addEventListener("click", ()=>{
+    seguimientoFiltro = card.dataset.filtro;
+    document.querySelectorAll('#screen-seguimiento .stat-card.filterable').forEach(c=>{
+      c.classList.toggle("filter-active", c===card);
+    });
+    renderSeguimiento();
+  });
+});
 
 function renderSeguimiento(){
   const dentroEl = document.getElementById("seguimientoDentroSinCobertura");
@@ -1632,6 +1658,11 @@ function renderSeguimiento(){
   animateNumber("seg-dentro", dentroSinCobertura.length);
   animateNumber("seg-fuera", fueraDeZona.length);
   animateNumber("seg-concob", conCobertura.length);
+
+  // Muestra solo el bloque del filtro activo (o los 3 si está en "todos")
+  document.getElementById("bloqueSegDentro").style.display = (seguimientoFiltro==="todos" || seguimientoFiltro==="dentro") ? "block" : "none";
+  document.getElementById("bloqueSegFuera").style.display = (seguimientoFiltro==="todos" || seguimientoFiltro==="fuera") ? "block" : "none";
+  document.getElementById("bloqueSegConCob").style.display = (seguimientoFiltro==="todos" || seguimientoFiltro==="concob") ? "block" : "none";
 
   dentroEl.innerHTML = dentroSinCobertura.length>0
     ? dentroSinCobertura.map(seguimientoCardHTML).join("")
