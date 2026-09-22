@@ -758,15 +758,20 @@
 
       <div class="stat-grid" style="margin-bottom:18px;">
         <div class="stat-card"><div class="num" id="seg-total">0</div><div class="lbl">Interesados totales</div></div>
-        <div class="stat-card"><div class="num" id="seg-sincob">0</div><div class="lbl">Esperando cobertura</div></div>
+        <div class="stat-card"><div class="num" id="seg-dentro">0</div><div class="lbl">Dentro de zona, sin cobertura</div></div>
+        <div class="stat-card"><div class="num" id="seg-fuera">0</div><div class="lbl">Fuera de tus municipios</div></div>
+        <div class="stat-card"><div class="num" id="seg-concob">0</div><div class="lbl">Con cobertura</div></div>
       </div>
 
       <div class="field" style="margin-bottom:10px;">
         <input type="text" id="f-buscar-seg" placeholder="🔍 Buscar en interesados..." autocomplete="off">
       </div>
 
-      <div class="section-label" style="color:var(--danger);">📍 Sin cobertura — esperando expansión</div>
-      <div id="seguimientoSinCobertura"></div>
+      <div class="section-label" style="color:var(--danger);">📍 Dentro de tu zona (Valencia / San Diego / Los Guayos) — sin cobertura aún</div>
+      <div id="seguimientoDentroSinCobertura"></div>
+
+      <div class="section-label" style="color:var(--accent);">🌍 Fuera de tus municipios — expansión futura</div>
+      <div id="seguimientoFueraZona"></div>
 
       <div class="section-label">✅ Con cobertura — falta cerrar</div>
       <div id="seguimientoConCobertura"></div>
@@ -1589,14 +1594,18 @@ function renderPanelAndHero(){
 let seguimientoSearchQuery = "";
 
 function renderSeguimiento(){
-  const sinCobEl = document.getElementById("seguimientoSinCobertura");
+  const dentroEl = document.getElementById("seguimientoDentroSinCobertura");
+  const fueraEl = document.getElementById("seguimientoFueraZona");
   const conCobEl = document.getElementById("seguimientoConCobertura");
 
   if(!dataLoaded){
-    sinCobEl.innerHTML = loadingStateHTML();
+    dentroEl.innerHTML = loadingStateHTML();
+    fueraEl.innerHTML = "";
     conCobEl.innerHTML = "";
     document.getElementById("seg-total").textContent = "…";
-    document.getElementById("seg-sincob").textContent = "…";
+    document.getElementById("seg-dentro").textContent = "…";
+    document.getElementById("seg-fuera").textContent = "…";
+    document.getElementById("seg-concob").textContent = "…";
     return;
   }
 
@@ -1610,17 +1619,27 @@ function renderSeguimiento(){
     );
   }
 
-  const sinCobertura = interesados.filter(e=>e.tieneCobertura==="No" || e.municipio==="Otro")
+  // Dentro de tus 3 municipios (Valencia/San Diego/Los Guayos), pero ese sector puntual aún no tiene cobertura
+  const dentroSinCobertura = interesados.filter(e=>e.tieneCobertura==="No" && e.municipio!=="Otro")
+    .sort((a,b)=>b.createdAt-a.createdAt);
+  // Totalmente fuera de tus 3 municipios de cobertura
+  const fueraDeZona = interesados.filter(e=>e.municipio==="Otro")
     .sort((a,b)=>b.createdAt-a.createdAt);
   const conCobertura = interesados.filter(e=>e.tieneCobertura!=="No" && e.municipio!=="Otro")
     .sort((a,b)=>b.createdAt-a.createdAt);
 
   animateNumber("seg-total", interesados.length);
-  animateNumber("seg-sincob", sinCobertura.length);
+  animateNumber("seg-dentro", dentroSinCobertura.length);
+  animateNumber("seg-fuera", fueraDeZona.length);
+  animateNumber("seg-concob", conCobertura.length);
 
-  sinCobEl.innerHTML = sinCobertura.length>0
-    ? sinCobertura.map(seguimientoCardHTML).join("")
-    : emptyStateHTML(query ? "Sin resultados" : "Ningún interesado esperando cobertura por ahora");
+  dentroEl.innerHTML = dentroSinCobertura.length>0
+    ? dentroSinCobertura.map(seguimientoCardHTML).join("")
+    : emptyStateHTML(query ? "Sin resultados" : "Ningún interesado esperando cobertura dentro de tu zona");
+
+  fueraEl.innerHTML = fueraDeZona.length>0
+    ? fueraDeZona.map(seguimientoCardHTML).join("")
+    : emptyStateHTML(query ? "Sin resultados" : "Ningún interesado fuera de tus municipios por ahora");
 
   conCobEl.innerHTML = conCobertura.length>0
     ? conCobertura.map(seguimientoCardHTML).join("")
