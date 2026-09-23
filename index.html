@@ -197,6 +197,10 @@
     transform: scale(0.96) translateY(0);
     box-shadow: 0 2px 6px rgba(165,140,244,0.25);
   }
+  #btnGuardar.guardando{
+    background: var(--success) !important;
+    pointer-events: none;
+  }
 
   .toast{
     position:fixed;
@@ -800,16 +804,31 @@
       </div>
 
       <div class="stat-grid" style="margin-bottom:18px;">
-        <div class="stat-card"><div class="num" id="pl-pendientes">0</div><div class="lbl">Pendientes por llamar</div></div>
-        <div class="stat-card"><div class="num" id="pl-llamados">0</div><div class="lbl">Ya llamados</div></div>
+        <div class="stat-card filterable filter-active" data-filtro="todos"><div class="num" id="pl-pendientes">0</div><div class="lbl">Pendientes totales</div></div>
+        <div class="stat-card filterable" data-filtro="listos"><div class="num" id="pl-listos">0</div><div class="lbl">✅ Listos para llamar</div></div>
+        <div class="stat-card filterable" data-filtro="dentro"><div class="num" id="pl-dentro">0</div><div class="lbl">Dentro de zona, sin cobertura</div></div>
+        <div class="stat-card filterable" data-filtro="fuera"><div class="num" id="pl-fuera">0</div><div class="lbl">Fuera de tus municipios</div></div>
+        <div class="stat-card wide"><div class="num" id="pl-llamados">0</div><div class="lbl">Ya llamados</div></div>
       </div>
 
       <div class="field" style="margin-bottom:10px;">
         <input type="text" id="f-buscar-pl" placeholder="🔍 Buscar en esta lista..." autocomplete="off">
       </div>
 
-      <div class="section-label" style="color:var(--accent);">📞 Pendientes por llamar</div>
-      <div id="porLlamarPendientes"></div>
+      <div id="bloquePlListos">
+        <div class="section-label" style="color:var(--success);">✅ Listos para llamar (con cobertura)</div>
+        <div id="porLlamarListos"></div>
+      </div>
+
+      <div id="bloquePlDentro">
+        <div class="section-label" style="color:var(--danger);">📍 Dentro de tu zona — sin cobertura aún (todavía no llamar)</div>
+        <div id="porLlamarDentroSinCobertura"></div>
+      </div>
+
+      <div id="bloquePlFuera">
+        <div class="section-label" style="color:var(--accent);">🌍 Fuera de tus municipios (todavía no llamar)</div>
+        <div id="porLlamarFueraZona"></div>
+      </div>
 
       <div class="section-label">✅ Ya llamados</div>
       <div id="porLlamarHechos"></div>
@@ -1176,6 +1195,16 @@ document.getElementById("btnGuardar").addEventListener("click", async ()=>{
   };
 
   entries.push(entry);
+
+  // Efecto visual: el botón cambia de color un momento, simulando el guardado
+  const btnGuardar = document.getElementById("btnGuardar");
+  const textoOriginal = btnGuardar.textContent;
+  btnGuardar.classList.add("guardando");
+  btnGuardar.textContent = "✓ Guardado";
+  setTimeout(()=>{
+    btnGuardar.classList.remove("guardando");
+    btnGuardar.textContent = textoOriginal;
+  }, 900);
 
   // Optimista: limpiamos el formulario y avisamos al instante.
   // El guardado real en Google Sheets ocurre en segundo plano (apiCreate más abajo).
@@ -1685,14 +1714,19 @@ document.getElementById("f-buscar-seg").addEventListener("input", (e)=>{
 let porLlamarSearchQuery = "";
 
 function renderPorLlamar(){
-  const pendEl = document.getElementById("porLlamarPendientes");
+  const listosEl = document.getElementById("porLlamarListos");
+  const dentroEl = document.getElementById("porLlamarDentroSinCobertura");
+  const fueraEl = document.getElementById("porLlamarFueraZona");
   const doneEl = document.getElementById("porLlamarHechos");
 
   if(!dataLoaded){
-    pendEl.innerHTML = emptyStateHTML("Conectando con Google Sheets...");
+    listosEl.innerHTML = loadingStateHTML();
+    dentroEl.innerHTML = "";
+    fueraEl.innerHTML = "";
     doneEl.innerHTML = "";
-    document.getElementById("pl-pendientes").textContent = "…";
-    document.getElementById("pl-llamados").textContent = "…";
+    ["pl-pendientes","pl-listos","pl-dentro","pl-fuera","pl-llamados"].forEach(id=>{
+      document.getElementById(id).textContent = "…";
+    });
     return;
   }
 
@@ -1709,12 +1743,32 @@ function renderPorLlamar(){
   const pendientes = candidatos.filter(e=>e.llamado!=="Si").sort((a,b)=>a.createdAt-b.createdAt); // los más viejos primero, para no olvidarlos
   const hechos = candidatos.filter(e=>e.llamado==="Si").sort((a,b)=>b.createdAt-a.createdAt);
 
+  // De los pendientes, separa según si ya hay cobertura en su zona o no
+  const listos = pendientes.filter(e=>e.tieneCobertura!=="No" && e.municipio!=="Otro");
+  const dentroSinCobertura = pendientes.filter(e=>e.tieneCobertura==="No" && e.municipio!=="Otro");
+  const fueraDeZona = pendientes.filter(e=>e.municipio==="Otro");
+
   animateNumber("pl-pendientes", pendientes.length);
+  animateNumber("pl-listos", listos.length);
+  animateNumber("pl-dentro", dentroSinCobertura.length);
+  animateNumber("pl-fuera", fueraDeZona.length);
   animateNumber("pl-llamados", hechos.length);
 
-  pendEl.innerHTML = pendientes.length>0
-    ? pendientes.map(e=>porLlamarCardHTML(e,true)).join("")
-    : emptyStateHTML(query ? "Sin resultados" : "No hay nadie pendiente por llamar 🎉");
+  document.getElementById("bloquePlListos").style.display = (porLlamarFiltro==="todos" || porLlamarFiltro==="listos") ? "block" : "none";
+  document.getElementById("bloquePlDentro").style.display = (porLlamarFiltro==="todos" || porLlamarFiltro==="dentro") ? "block" : "none";
+  document.getElementById("bloquePlFuera").style.display = (porLlamarFiltro==="todos" || porLlamarFiltro==="fuera") ? "block" : "none";
+
+  listosEl.innerHTML = listos.length>0
+    ? listos.map(e=>porLlamarCardHTML(e,true)).join("")
+    : emptyStateHTML(query ? "Sin resultados" : "No hay nadie listo para llamar ahora mismo");
+
+  dentroEl.innerHTML = dentroSinCobertura.length>0
+    ? dentroSinCobertura.map(e=>porLlamarCardHTML(e,true)).join("")
+    : emptyStateHTML(query ? "Sin resultados" : "Ninguno esperando cobertura dentro de tu zona");
+
+  fueraEl.innerHTML = fueraDeZona.length>0
+    ? fueraDeZona.map(e=>porLlamarCardHTML(e,true)).join("")
+    : emptyStateHTML(query ? "Sin resultados" : "Ninguno fuera de tus municipios por ahora");
 
   doneEl.innerHTML = hechos.length>0
     ? hechos.slice(0,30).map(e=>porLlamarCardHTML(e,false)).join("")
@@ -1724,6 +1778,18 @@ function renderPorLlamar(){
 document.getElementById("f-buscar-pl").addEventListener("input", (e)=>{
   porLlamarSearchQuery = e.target.value;
   renderPorLlamar();
+});
+
+let porLlamarFiltro = "todos"; // "todos" | "listos" | "dentro" | "fuera"
+
+document.querySelectorAll('#screen-porllamar .stat-card.filterable').forEach(card=>{
+  card.addEventListener("click", ()=>{
+    porLlamarFiltro = card.dataset.filtro;
+    document.querySelectorAll('#screen-porllamar .stat-card.filterable').forEach(c=>{
+      c.classList.toggle("filter-active", c===card);
+    });
+    renderPorLlamar();
+  });
 });
 
 function renderAll(){
@@ -1776,12 +1842,16 @@ function openLlamadaResultado(id){
       <button type="button" class="btn-primary resultado-btn" data-resultado="Interesado" style="background:var(--primary);">💬 Sigue interesado</button>
       <button type="button" class="btn-primary resultado-btn" data-resultado="Precio" style="background:var(--accent);">💲 Preguntó precio, no cerró</button>
       <button type="button" class="btn-primary resultado-btn" data-resultado="No contestó" style="background:var(--ink-faint);">📵 No contestó</button>
+      <button type="button" class="btn-primary resultado-btn" data-resultado="SinCobertura" style="background:#6B7280;">📡 No hay cobertura ahí</button>
       <button type="button" class="btn-primary resultado-btn" data-resultado="No interesa" style="background:var(--danger);">❌ No le interesa</button>
     </div>
     <div class="field" id="wrap-resultado-monto" style="display:none; margin-top:14px;">
       <label>Monto de la venta ($)</label>
       <input type="number" id="resultado-monto" placeholder="200">
     </div>
+    <p id="wrap-resultado-sincobertura" style="display:none; font-size:12.5px; color:var(--ink-soft); margin:14px 0 0;">
+      El cliente queda marcado como "sin cobertura" en su zona — seguirá apareciendo como Interesado, pero ahora en la sección correcta para cuando amplíes el servicio ahí.
+    </p>
     <button type="button" class="btn-primary" id="btnConfirmarResultado" style="margin-top:14px; display:none;">Guardar resultado</button>
   `;
   document.getElementById("editOverlay").classList.add("show");
@@ -1793,13 +1863,21 @@ function openLlamadaResultado(id){
       resultadoElegido = btn.dataset.resultado;
       wrap.querySelectorAll(".resultado-btn").forEach(b=>{ b.style.opacity = (b===btn) ? "1" : "0.45"; });
       document.getElementById("wrap-resultado-monto").style.display = resultadoElegido==="Compra" ? "block" : "none";
+      document.getElementById("wrap-resultado-sincobertura").style.display = resultadoElegido==="SinCobertura" ? "block" : "none";
       document.getElementById("btnConfirmarResultado").style.display = "block";
     });
   });
 
   document.getElementById("btnConfirmarResultado").addEventListener("click", ()=>{
-    en.estado = resultadoElegido;
-    en.monto = resultadoElegido==="Compra" ? (Number(document.getElementById("resultado-monto").value) || 0) : 0;
+    if(resultadoElegido==="SinCobertura"){
+      // No es un estado nuevo: corrige el dato de cobertura y lo deja como Interesado
+      en.tieneCobertura = "No";
+      en.estado = "Interesado";
+      en.monto = 0;
+    } else {
+      en.estado = resultadoElegido;
+      en.monto = resultadoElegido==="Compra" ? (Number(document.getElementById("resultado-monto").value) || 0) : 0;
+    }
     en.llamado = "Si";
     en.llamadoPor = currentUser ? currentUser.name : "";
     en.fechaLlamada = todayISO();
@@ -2247,6 +2325,17 @@ document.getElementById("btnLogout").addEventListener("click", ()=>{
 
 // ---------- Init ----------
 (async function init(){
+  // Algunos navegadores restauran lo que se escribió en los buscadores al
+  // recargar la página (form restoration). Los forzamos a empezar vacíos
+  // siempre, para que nunca "filtren" solos con texto de una sesión anterior.
+  ["f-buscar","f-buscar-seg","f-buscar-pl"].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.value = "";
+  });
+  historialSearchQuery = "";
+  seguimientoSearchQuery = "";
+  porLlamarSearchQuery = "";
+
   // Si ya había una sesión guardada, entra directo sin pedir login de nuevo
   const saved = restoreSession();
   if(saved){
@@ -2259,6 +2348,23 @@ document.getElementById("btnLogout").addEventListener("click", ()=>{
   dataLoaded = true;
   buildMonthOptions();
   renderAll();
+
+  // Segunda limpieza de respaldo, por si el navegador restaura el texto
+  // de los buscadores un poco después de que la página ya cargó.
+  setTimeout(()=>{
+    ["f-buscar","f-buscar-seg","f-buscar-pl"].forEach(id=>{
+      const el = document.getElementById(id);
+      if(el && el.value){
+        el.value = "";
+      }
+    });
+    if(historialSearchQuery || seguimientoSearchQuery || porLlamarSearchQuery){
+      historialSearchQuery = "";
+      seguimientoSearchQuery = "";
+      porLlamarSearchQuery = "";
+      renderAll();
+    }
+  }, 400);
 })();
 </script>
 </body>
