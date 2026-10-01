@@ -1196,19 +1196,36 @@ async function sha256Hex(text){
 }
 let currentUser = null; // {name, isAdmin, rol}
 
-// ---------- Sesión persistente (se mantiene al recargar la página) ----------
+// ---------- Sesión persistente (se mantiene al recargar la página, expira tras inactividad) ----------
+const SESSION_MAX_INACTIVITY_MS = 12 * 60 * 60 * 1000; // 12 horas
 function saveSession(){
   try{ localStorage.setItem("wifiprado_session", JSON.stringify(currentUser)); }catch(e){}
+  touchSession();
 }
 function clearSession(){
-  try{ localStorage.removeItem("wifiprado_session"); }catch(e){}
+  try{
+    localStorage.removeItem("wifiprado_session");
+    localStorage.removeItem("wifiprado_session_lastActive");
+  }catch(e){}
+}
+function touchSession(){
+  try{ localStorage.setItem("wifiprado_session_lastActive", String(Date.now())); }catch(e){}
 }
 function restoreSession(){
   try{
     const raw = localStorage.getItem("wifiprado_session");
     if(!raw) return null;
+    const lastActiveRaw = localStorage.getItem("wifiprado_session_lastActive");
+    const lastActive = lastActiveRaw ? Number(lastActiveRaw) : 0;
+    if(!lastActive || (Date.now() - lastActive) > SESSION_MAX_INACTIVITY_MS){
+      clearSession();
+      return null;
+    }
     const saved = JSON.parse(raw);
-    if(saved && saved.name) return saved;
+    if(saved && saved.name){
+      touchSession();
+      return saved;
+    }
   }catch(e){}
   return null;
 }
@@ -2614,6 +2631,19 @@ document.getElementById("btnLogout").addEventListener("click", ()=>{
     document.getElementById("loginGate").style.display = "none";
     applyRoleUI();
   }
+
+  // Mientras haya sesión activa, refresca "última actividad" con el uso real
+  // de la app (sin esto, 12h de uso seguido cerrarían la sesión a mitad de trabajo).
+  let lastTouch = 0;
+  ["click","keydown","touchstart"].forEach(evt=>{
+    document.addEventListener(evt, ()=>{
+      if(!currentUser) return;
+      const now = Date.now();
+      if(now - lastTouch < 60000) return; // máximo una vez por minuto
+      lastTouch = now;
+      touchSession();
+    }, { passive:true });
+  });
   renderAll(); // muestra el estado "Conectando..." de inmediato
   await loadEntries();
   dataLoaded = true;
