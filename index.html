@@ -1173,20 +1173,18 @@ const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto"
 const GOOGLE_SHEET_API_URL = "https://script.google.com/macros/s/AKfycbygxfI6xP7RmYrnqpB3avxmGXTf5X1KIKyRtRAaYaglx5my-JmK2oxIHcTjebVJ4RpT/exec";
 
 // ---------- Sesión / roles ----------
-// Clave de administrador: guardada como hash SHA-256, no en texto plano.
-// Para cambiarla, genera el hash de tu nueva clave (pídeme ayuda) y reemplaza este valor.
-const ADMIN_PASSWORD_HASH = "3219366d500d11c082ce452224e21a9beae92e9f2e1e657a1f1278dfdc8a30ee";
+// Las claves ya NO están en esta página: las revisa el servidor (Apps Script).
 
-// Usuarios del equipo: cada uno con su nombre, rol y clave (guardada como hash SHA-256).
-// Para agregar, quitar o cambiar la clave de alguien, pídele a Claude que actualice esta lista.
+// Usuarios del equipo (solo nombre y rol, para el selector). Las claves están en el Apps Script.
+// Si agregas a alguien, agrégalo aquí Y en la lista USUARIOS del Apps Script.
 const TEAM_USERS = [
-  {name:"Rosbely Arocha",    rol:"Vendedora", hash:"69b04994a58e50cf547179d054b01920a8c73ce0ba25d2a58adf1cdd22364669"},
-  {name:"Johan Ladera",      rol:"Vendedora", hash:"714ef8a997bb177d4d26734f82b5c61e5a5d8242430d703003119982f445efd8"},
-  {name:"Maidelys Cordero",  rol:"Vendedora", hash:"2cc654574a8f924c9f2a8f66286bde74a755572710911a4a5ac7719152154c88"},
-  {name:"Marketing",         rol:"CM",        hash:"f5904cf7a1231a7a13a8cffbd2f0482984a1c69e96fc48dd96be8858a1707e60"},
-  {name:"Rosangel Castillo", rol:"Calle",     hash:"7b579e7cd0bcc85920d470200d04f1eccee1e05c004aa2585b8dbfcbfa97a8c8"},
-  {name:"Dorimar Ortuño",    rol:"Calle",     hash:"21b4fc737c993c047ff6f65b8a6669b71a21fd931e2e491502526a82c0949bcb"},
-  {name:"Dilan Barco",       rol:"Calle",     hash:"23d0838e7cb5e9f6ccd99feebcf6e5b596b50c6da1d4aca828805b4f3e031bc9"}
+  {name:"Rosbely Arocha",    rol:"Vendedora"},
+  {name:"Johan Ladera",      rol:"Vendedora"},
+  {name:"Maidelys Cordero",  rol:"Vendedora"},
+  {name:"Marketing",         rol:"CM"},
+  {name:"Rosangel Castillo", rol:"Calle"},
+  {name:"Dorimar Ortuño",    rol:"Calle"},
+  {name:"Dilan Barco",       rol:"Calle"}
 ];
 
 async function sha256Hex(text){
@@ -1194,7 +1192,7 @@ async function sha256Hex(text){
   const hashBuffer = await crypto.subtle.digest("SHA-256", data);
   return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2,"0")).join("");
 }
-let currentUser = null; // {name, isAdmin, rol}
+let currentUser = null; // {name, isAdmin, rol, token}
 
 // ---------- Sesión persistente (se mantiene al recargar la página, expira tras inactividad) ----------
 const SESSION_MAX_INACTIVITY_MS = 12 * 60 * 60 * 1000; // 12 horas
@@ -1222,7 +1220,7 @@ function restoreSession(){
       return null;
     }
     const saved = JSON.parse(raw);
-    if(saved && saved.name){
+    if(saved && saved.name && saved.token){ // sesiones viejas sin token: piden login de nuevo
       touchSession();
       return saved;
     }
@@ -1278,13 +1276,35 @@ function normalizeEntry(e){
   });
 }
 
+// Llama al Apps Script por POST y devuelve la respuesta en JSON.
+async function apiPost(payloadObj){
+  const res = await fetch(GOOGLE_SHEET_API_URL, {
+    method: "POST",
+    headers: {"Content-Type": "text/plain;charset=utf-8"},
+    body: JSON.stringify(payloadObj)
+  });
+  if(!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
+// La sesión venció o la cerraron desde el servidor: vuelve a la pantalla de entrada.
+function sesionVencida(){
+  clearSession();
+  currentUser = null;
+  entries = [];
+  dataLoaded = false;
+  document.getElementById("loginGate").style.display = "flex";
+  showToast("Tu sesión venció. Vuelve a entrar con tu clave.");
+}
+
 async function loadEntries(){
+  if(!currentUser || !currentUser.token) return;
   const maxIntentos = 3;
   for(let intento = 1; intento <= maxIntentos; intento++){
     try{
-      const res = await fetch(GOOGLE_SHEET_API_URL);
-      if(!res.ok) throw new Error("HTTP " + res.status);
-      const data = await res.json();
+      const data = await apiPost({ action:"list", token: currentUser.token });
+      if(data.error === "sesion"){ sesionVencida(); return; }
+      if(!data.ok) throw new Error(data.error || "respuesta inválida");
       entries = (data.entries || []).map(normalizeEntry);
       return; // éxito, salimos de la función
     }catch(e){
@@ -1300,11 +1320,22 @@ async function loadEntries(){
   }
 }
 
+// Carga los datos justo después de entrar (antes se cargaban sin sesión).
+async function cargarDatosTrasLogin(){
+  dataLoaded = false;
+  renderAll();
+  await loadEntries();
+  if(!currentUser) return;
+  dataLoaded = true;
+  buildMonthOptions();
+  renderAll();
+}
+
 // Envía datos al backend de forma que SOBREVIVE si el usuario cierra la
 // pestaña justo después de guardar (usa sendBeacon, hecho para esto).
 // Si el navegador no lo soporta, cae de respaldo al fetch normal.
 function sendToSheet(payloadObj){
-  const payloadStr = JSON.stringify(payloadObj);
+  const payloadStr = JSON.stringify(Object.assign({ token: currentUser ? currentUser.token : "" }, payloadObj));
   if(navigator.sendBeacon){
     const blob = new Blob([payloadStr], {type:"text/plain;charset=utf-8"});
     const enviado = navigator.sendBeacon(GOOGLE_SHEET_API_URL, blob);
@@ -1581,6 +1612,7 @@ function rolBadgeEmoji(rol){
   if(rol==="CM") return "📱";
   if(rol==="Calle") return "🚶";
   if(rol==="Vendedora") return "👩‍💻";
+  if(rol==="Agente") return "🤖";
   return "👤";
 }
 
@@ -2534,6 +2566,7 @@ function rolLabel(rol){
   if(rol==="Calle") return "Vendedor de calle";
   if(rol==="Vendedora") return "Vendedora";
   if(rol==="Admin") return "Administrador";
+  if(rol==="Agente") return "Agente WhatsApp";
   return "";
 }
 
@@ -2570,15 +2603,24 @@ document.getElementById("btnLoginVendedor").addEventListener("click", async ()=>
     alert("Escribe tu clave para continuar");
     return;
   }
-  const user = TEAM_USERS.find(u=>u.name===name);
-  const passHash = await sha256Hex(pass);
-  if(user && passHash === user.hash){
-    currentUser = {name: user.name, isAdmin:false, rol: user.rol};
-    saveSession();
-    document.getElementById("loginGate").style.display = "none";
-    applyRoleUI();
-  } else {
-    alert("Clave incorrecta");
+  const btn = document.getElementById("btnLoginVendedor");
+  btn.disabled = true;
+  try{
+    const r = await apiPost({ action:"login", usuario:name, clave:pass });
+    if(r.ok){
+      currentUser = {name: r.name, isAdmin:false, rol: r.rol, token: r.token};
+      saveSession();
+      document.getElementById("login-pass").value = "";
+      document.getElementById("loginGate").style.display = "none";
+      applyRoleUI();
+      cargarDatosTrasLogin();
+    } else {
+      alert("Clave incorrecta");
+    }
+  }catch(e){
+    alert("No se pudo conectar. Revisa tu internet e intenta de nuevo.");
+  }finally{
+    btn.disabled = false;
   }
 });
 
@@ -2589,19 +2631,30 @@ document.getElementById("btnShowAdmin").addEventListener("click", ()=>{
 
 document.getElementById("btnLoginAdmin").addEventListener("click", async ()=>{
   const pass = document.getElementById("login-admin-pass").value;
-  const passHash = await sha256Hex(pass);
-  if(passHash === ADMIN_PASSWORD_HASH){
-    currentUser = {name:"Administrador", isAdmin:true, rol:"Admin"};
-    saveSession();
-    document.getElementById("loginGate").style.display = "none";
-    applyRoleUI();
-  } else {
-    alert("Clave incorrecta");
+  const btn = document.getElementById("btnLoginAdmin");
+  btn.disabled = true;
+  try{
+    const r = await apiPost({ action:"login", admin:true, clave:pass });
+    if(r.ok){
+      currentUser = {name:"Administrador", isAdmin:true, rol:"Admin", token: r.token};
+      saveSession();
+      document.getElementById("login-admin-pass").value = "";
+      document.getElementById("loginGate").style.display = "none";
+      applyRoleUI();
+      cargarDatosTrasLogin();
+    } else {
+      alert("Clave incorrecta");
+    }
+  }catch(e){
+    alert("No se pudo conectar. Revisa tu internet e intenta de nuevo.");
+  }finally{
+    btn.disabled = false;
   }
 });
 
 document.getElementById("btnLogout").addEventListener("click", ()=>{
   if(!confirm("¿Cerrar sesión?")) return;
+  if(currentUser && currentUser.token){ sendToSheet({ action:"logout" }); }
   clearSession();
   currentUser = null;
   document.getElementById("login-pass").value = "";
@@ -2645,10 +2698,9 @@ document.getElementById("btnLogout").addEventListener("click", ()=>{
     }, { passive:true });
   });
   renderAll(); // muestra el estado "Conectando..." de inmediato
-  await loadEntries();
-  dataLoaded = true;
-  buildMonthOptions();
-  renderAll();
+  if(currentUser){
+    await cargarDatosTrasLogin();
+  }
 
   // Segunda limpieza de respaldo, por si el navegador restaura el texto
   // de los buscadores un poco después de que la página ya cargó.
